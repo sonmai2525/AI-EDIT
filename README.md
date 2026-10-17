@@ -146,3 +146,7 @@ See `AUTO_VIRAL_EDITOR_V7.md` for details. “Viral” here describes the editin
 
 ## V10 Multimodal Story Director
 V10 adds contact-sheet vision packets, optional provider-neutral VLM scene semantics, cold-open hook selection, payoff selection, narrative reordering, and preservation of V9 smart reframing. See `V10_MULTIMODAL_STORY_DIRECTOR.md`.
+
+
+## V12 Viral Engine
+Use EDIT_VIDEO.bat for SMART default. See V12_VIRAL_ENGINE.md and HUONG_DAN_V12.txt.
