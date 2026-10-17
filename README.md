@@ -150,3 +150,6 @@ V10 adds contact-sheet vision packets, optional provider-neutral VLM scene seman
 
 ## V12 Viral Engine
 Use EDIT_VIDEO.bat for SMART default. See V12_VIRAL_ENGINE.md and HUONG_DAN_V12.txt.
+
+## V13
+See V13_STORY_INTELLIGENCE.md.
