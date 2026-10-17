@@ -56,6 +56,190 @@ SUB_FORCE_STYLE = (
     "Alignment=2,MarginV=90"
 )
 
+# -------- Text Engine V3: semantic + animated short-form captions -----------
+# The V3 engine can keep one preset for the whole video, or choose a treatment
+# cue-by-cue (hook, emphasis, number, CTA, emotion, normal) in "auto_dynamic".
+CAPTION_PRESETS = {
+    "viral_pop": {"font":"Arial","size":62,"primary":"&H00FFFFFF","secondary":"&H0000D7FF","outline":"&H00101010","outline_w":5,"shadow":3,"margin_v":500,"transform":r"{\fscx72\fscy72\t(0,110,\fscx112\fscy112)\t(110,190,\fscx100\fscy100)}","karaoke":True},
+    "punch": {"font":"Arial","size":66,"primary":"&H00FFFFFF","secondary":"&H0048A7FF","outline":"&H00000000","outline_w":6,"shadow":4,"margin_v":520,"transform":r"{\blur1\fscx55\fscy55\t(0,90,\fscx118\fscy118\blur0)\t(90,165,\fscx100\fscy100)}","karaoke":True},
+    "clean": {"font":"Arial","size":56,"primary":"&H00FFFFFF","secondary":"&H00FFFFFF","outline":"&H00101010","outline_w":4,"shadow":2,"margin_v":500,"transform":r"{\fad(70,90)}","karaoke":False},
+    "cinematic": {"font":"Arial","size":48,"primary":"&H00FFFFFF","secondary":"&H00FFFFFF","outline":"&H00202020","outline_w":2,"shadow":1,"margin_v":430,"transform":r"{\fsp2\fad(180,220)}","karaoke":False},
+    # V3 role presets
+    "hook": {"font":"Arial","size":76,"primary":"&H00FFFFFF","secondary":"&H0000D7FF","outline":"&H00000000","outline_w":7,"shadow":4,"margin_v":610,"transform":r"{\blur2\fscx45\fscy45\frz-3\t(0,90,\blur0\fscx122\fscy122\frz1)\t(90,180,\fscx100\fscy100\frz0)}","karaoke":True},
+    "emphasis": {"font":"Arial","size":70,"primary":"&H00FFFFFF","secondary":"&H0000D7FF","outline":"&H00101010","outline_w":6,"shadow":4,"margin_v":520,"transform":r"{\fscx70\fscy70\t(0,100,\fscx116\fscy116)\t(100,180,\fscx100\fscy100)}","karaoke":True},
+    "number": {"font":"Arial","size":78,"primary":"&H0000D7FF","secondary":"&H0000FFFF","outline":"&H00000000","outline_w":7,"shadow":4,"margin_v":560,"transform":r"{\fscx40\fscy40\t(0,120,\fscx125\fscy125)\t(120,220,\fscx100\fscy100)}","karaoke":True},
+    "cta": {"font":"Arial","size":68,"primary":"&H00FFFFFF","secondary":"&H0048A7FF","outline":"&H00000000","outline_w":6,"shadow":4,"margin_v":610,"transform":r"{\fad(60,140)\fscx75\fscy75\t(0,140,\fscx108\fscy108)\t(140,230,\fscx100\fscy100)}","karaoke":True},
+    "emotion": {"font":"Arial","size":54,"primary":"&H00FFFFFF","secondary":"&H00FFFFFF","outline":"&H00202020","outline_w":3,"shadow":2,"margin_v":450,"transform":r"{\fsp2\fad(160,220)\move(540,1490,540,1460,0,260)}","karaoke":False},
+}
+
+# Lightweight semantic rules. They deliberately work offline and can be
+# overridden by EDL caption_events when an upstream LLM has richer context.
+HOOK_WORDS = {"wait","watch","stop","look","listen","secret","why","how","đợi","xem","dừng","nhìn","bí mật","tại sao","cách"}
+CTA_WORDS = {"follow","subscribe","comment","share","save","like","click","dm","theo dõi","đăng ký","bình luận","chia sẻ","lưu","nhấn"}
+EMOTION_WORDS = {"amazing","beautiful","wow","love","crazy","incredible","sad","happy","đẹp","tuyệt","yêu","điên","bất ngờ","hạnh phúc","buồn"}
+EMPHASIS_WORDS = {"best","never","always","must","important","biggest","only","nhất","không bao giờ","luôn","phải","quan trọng","duy nhất"}
+
+def _ass_ts(seconds: float) -> str:
+    seconds=max(0.0,seconds); h=int(seconds//3600); seconds-=h*3600; m=int(seconds//60); seconds-=m*60
+    return f"{h}:{m:02d}:{seconds:05.2f}"
+
+def _ass_escape(text: str) -> str:
+    return text.replace("\\", r"\\").replace("{", r"\{").replace("}", r"\}")
+
+def _range_speed(r: dict) -> float:
+    """Playback speed for a range. 1.0 keeps source timing."""
+    try:
+        return max(0.25, min(4.0, float(r.get("speed", 1.0))))
+    except (TypeError, ValueError):
+        return 1.0
+
+def _caption_entries(edl: dict, edit_dir: Path):
+    transcripts_dir=edit_dir/"transcripts"; entries=[]; seg_offset=0.0
+    for r in edl["ranges"]:
+        src_name=r["source"]; seg_start=float(r["start"]); seg_end=float(r["end"]); tr_path=transcripts_dir/f"{src_name}.json"
+        if tr_path.exists():
+            transcript=json.loads(tr_path.read_text())
+            for chunk in chunk_words(_words_in_range(transcript,seg_start,seg_end)):
+                local_start=max(seg_start,chunk[0].get("start",seg_start)); local_end=min(seg_end,chunk[-1].get("end",seg_end))
+                speed=_range_speed(r)
+                a=max(0.0,local_start-seg_start)/speed+seg_offset; b=max(a+0.12,(local_end-seg_start)/speed+seg_offset)
+                words=[(w.get("text") or "").strip().rstrip(",;:") for w in chunk]; words=[x for x in words if x]
+                durations=[max(0.06,(float(w.get("end",0))-float(w.get("start",0)))/_range_speed(r)) for w in chunk]
+                entries.append((a,b," ".join(words).upper(),durations))
+        else: print(f"  no transcript for {src_name}, skipping captions for this segment")
+        seg_offset += (seg_end-seg_start)/_range_speed(r)
+    return sorted(entries,key=lambda e:e[0])
+
+def _semantic_role(text: str, cue_index: int, cue_count: int) -> str:
+    low=text.lower()
+    tokens=set(re.findall(r"[^\W_]+", low, flags=re.UNICODE))
+    if re.search(r"(?:^|\s)[€$£₫]?\d[\d.,]*(?:%|k|m|tr|triệu|tỷ)?(?:\s|$)", low): return "number"
+    if any(x in low for x in CTA_WORDS): return "cta"
+    if cue_index < 2 and (any(x in low for x in HOOK_WORDS) or "?" in text): return "hook"
+    if any(x in low for x in EMPHASIS_WORDS): return "emphasis"
+    if any(x in low for x in EMOTION_WORDS): return "emotion"
+    if cue_index == cue_count-1 and any(x in low for x in CTA_WORDS): return "cta"
+    return "viral_pop"
+
+def _event_override(edl: dict, a: float, b: float):
+    """Return role/style from optional caption_events overlapping this cue.
+    Example: {"start":0,"end":1.5,"role":"hook"}.
+    """
+    best=None; best_overlap=0.0
+    for ev in edl.get("caption_events") or []:
+        ea=float(ev.get("start",0)); eb=float(ev.get("end",ea)); overlap=max(0.0,min(b,eb)-max(a,ea))
+        if overlap>best_overlap:
+            best_overlap=overlap; best=ev.get("style") or ev.get("role")
+    return best if best in CAPTION_PRESETS else None
+
+def _karaoke_body(text: str, durations: list[float], active_colour="&H0000D7FF") -> str:
+    words=_ass_escape(text).split(); tags=[]
+    for i,word in enumerate(words):
+        d=durations[i] if i<len(durations) else 0.18
+        # \kf fills each word over its spoken duration. SecondaryColour is the
+        # active/highlight colour, so the eye follows speech instead of a block.
+        tags.append(r"{\kf%d}%s"%(max(6,round(d*100)),word))
+    return " ".join(tags)
+
+
+# -------- Text Engine V4: visual layout + kinetic typography ----------------
+# V4 adds scene-aware layout metadata without requiring a heavyweight vision
+# dependency inside render.py. An upstream vision model/analyzer can populate
+# visual_text_events; render.py then turns those decisions into deterministic
+# ASS positioning, motion, boxes and icon accents.
+V4_LAYOUTS = {
+    "center": (540, 960),
+    "upper": (540, 560),
+    "lower_safe": (540, 1320),
+    "left": (300, 900),
+    "right": (780, 900),
+    "top_left": (300, 500),
+    "top_right": (780, 500),
+}
+
+def _visual_event(edl: dict, a: float, b: float) -> dict:
+    best={}; best_overlap=0.0
+    for ev in edl.get("visual_text_events") or []:
+        ea=float(ev.get("start",0)); eb=float(ev.get("end",ea))
+        overlap=max(0.0,min(b,eb)-max(a,ea))
+        if overlap>best_overlap:
+            best_overlap=overlap; best=ev
+    return best
+
+def _v4_layout_tag(ev: dict, idx: int) -> str:
+    layout=ev.get("layout") or "center"
+    x,y=V4_LAYOUTS.get(layout,V4_LAYOUTS["center"])
+    # Explicit normalized coordinates are useful when vision knows the subject.
+    if "x" in ev: x=max(70,min(1010,round(float(ev["x"])*1080)))
+    if "y" in ev: y=max(120,min(1740,round(float(ev["y"])*1920)))
+    motion=ev.get("motion") or "pop"
+    if motion=="slide_left": return rf"{{\move({x-150},{y},{x},{y},0,220)}}"
+    if motion=="slide_right": return rf"{{\move({x+150},{y},{x},{y},0,220)}}"
+    if motion=="rise": return rf"{{\move({x},{y+90},{x},{y},0,240)}}"
+    if motion=="drift": return rf"{{\move({x-30},{y+25},{x+30},{y-15},0,700)}}"
+    if motion=="shake": return rf"{{\pos({x},{y})\frz-2\t(0,70,\frz2)\t(70,140,\frz-1)\t(140,210,\frz0)}}"
+    return rf"{{\pos({x},{y})}}"
+
+def _v4_decorate(text: str, ev: dict) -> str:
+    # Keep icons deliberately simple/Unicode so the project stays dependency-free.
+    icon=str(ev.get("icon") or "").strip()
+    if icon and len(icon)<=4: text=f"{icon} {text}"
+    return text
+
+def _v4_box_tag(ev: dict) -> str:
+    # ASS opaque-box mode. BorderStyle=3 is applied inline only when requested.
+    if not ev.get("box"): return ""
+    opacity=str(ev.get("box_opacity","88"))
+    return rf"{{\bord0\shad0\3c&H000000&\3a&H{opacity}&}}"
+
+def build_master_ass_v4(edl: dict, edit_dir: Path, out_path: Path, preset_name: str="auto_dynamic") -> None:
+    """V4 caption renderer: V3 semantics + per-scene position/motion/decor.
+
+    visual_text_events example:
+      {"start":0,"end":1.2,"layout":"upper","motion":"rise","icon":"🔥",
+       "box":true,"style":"hook"}
+    Coordinates x/y may be supplied normalized 0..1 by a vision analyzer.
+    """
+    auto=preset_name in {"auto_dynamic","visual_dynamic"}
+    entries=_caption_entries(edl,edit_dir)
+    header=("[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nScaledBorderAndShadow: yes\nWrapStyle: 2\n\n"
+            "[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\n")
+    lines=[header]
+    for name,p in CAPTION_PRESETS.items():
+        lines.append(f"Style: {name},{p['font']},{p['size']},{p['primary']},{p['secondary']},{p['outline']},&H64000000,-1,0,0,0,100,100,0,0,1,{p['outline_w']},{p['shadow']},5,40,40,40,1\n")
+    lines.append("\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n")
+    for idx,(a,b,text,durations) in enumerate(entries):
+        ev=_visual_event(edl,a,b)
+        style=ev.get("style") if ev.get("style") in CAPTION_PRESETS else ((_event_override(edl,a,b) or _semantic_role(text,idx,len(entries))) if auto else preset_name)
+        if style not in CAPTION_PRESETS: style="viral_pop"
+        p=CAPTION_PRESETS[style]
+        text=_v4_decorate(text,ev)
+        body=_karaoke_body(text,durations,p["secondary"]) if p["karaoke"] else _ass_escape(text)
+        body=_v4_layout_tag(ev,idx)+_v4_box_tag(ev)+p["transform"]+body
+        lines.append(f"Dialogue: 0,{_ass_ts(a)},{_ass_ts(b)},{style},v4-{style},0,0,0,,{body}\n")
+    out_path.write_text("".join(lines))
+    print(f"master ASS → {out_path.name} (V4 {preset_name}, {len(entries)} cues)")
+
+def build_master_ass(edl: dict, edit_dir: Path, out_path: Path, preset_name: str="viral_pop") -> None:
+    auto = preset_name == "auto_dynamic"
+    if not auto and preset_name not in CAPTION_PRESETS: raise ValueError(f"unknown caption preset: {preset_name}")
+    entries=_caption_entries(edl,edit_dir)
+    # Multiple named styles let one video switch visual language cue-by-cue.
+    header=("[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nScaledBorderAndShadow: yes\nWrapStyle: 2\n\n"
+            "[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\n")
+    lines=[header]
+    for name,p in CAPTION_PRESETS.items():
+        lines.append(f"Style: {name},{p['font']},{p['size']},{p['primary']},{p['secondary']},{p['outline']},&H64000000,-1,0,0,0,100,100,0,0,1,{p['outline_w']},{p['shadow']},2,70,70,{p['margin_v']},1\n")
+    lines.append("\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n")
+    for idx,(a,b,text,durations) in enumerate(entries):
+        style = (_event_override(edl,a,b) or _semantic_role(text,idx,len(entries))) if auto else preset_name
+        p=CAPTION_PRESETS[style]
+        body=_karaoke_body(text,durations,p["secondary"]) if p["karaoke"] else _ass_escape(text)
+        body=p["transform"]+body
+        # Role is kept in Name for easy inspection/debugging of generated ASS.
+        lines.append(f"Dialogue: 0,{_ass_ts(a)},{_ass_ts(b)},{style},{style},0,0,0,,{body}\n")
+    out_path.write_text("".join(lines)); print(f"master ASS → {out_path.name} ({preset_name}, {len(entries)} cues)")
+
 # -------- Helpers ------------------------------------------------------------
 
 
@@ -254,6 +438,11 @@ def extract_segment(
     preview: bool = False,
     draft: bool = False,
     rate: str | None = None,
+    output_aspect: str = "source",
+    speed: float = 1.0,
+    motion: str | None = None,
+    focus_x: float = 0.5,
+    focus_y: float = 0.5,
 ) -> None:
     """Extract a cut range as its own MP4 with grade + 30ms audio fades baked in.
 
@@ -277,13 +466,48 @@ def extract_segment(
     if is_hdr_source(source):
         vf_parts.append(TONEMAP_CHAIN)
     vf_parts.append(scale)
+    # V2 short-form framing. Center crop is deterministic and safe; an agent can
+    # later replace it with subject-aware crop coordinates after visual review.
+    if output_aspect != "source":
+        target = {"9:16": (9, 16), "16:9": (16, 9), "1:1": (1, 1)}.get(output_aspect)
+        if target:
+            aw, ah = target
+            fx=max(0.0,min(1.0,float(focus_x if focus_x is not None else .5)))
+            fy=max(0.0,min(1.0,float(focus_y if focus_y is not None else .5)))
+            cw=f"if(gt(iw/ih,{aw}/{ah}),ih*{aw}/{ah},iw)"
+            ch=f"if(gt(iw/ih,{aw}/{ah}),ih,iw*{ah}/{aw})"
+            # V9 smart reframe: place the crop window around the likely subject,
+            # clamped to the source frame. Center crop remains the default.
+            cx=f"max(0,min(iw-({cw}),{fx:.6f}*iw-({cw})/2))"
+            cy=f"max(0,min(ih-({ch}),{fy:.6f}*ih-({ch})/2))"
+            vf_parts.append(f"crop='{cw}':'{ch}':'{cx}':'{cy}'")
+            dims={"9:16":"1080:1920","16:9":"1920:1080","1:1":"1080:1080"}
+            vf_parts.append(f"scale={dims.get(output_aspect,'1080:1920')}")
     if grade_filter:
         vf_parts.append(grade_filter)
+    # V6 creative motion. Keep it deterministic and subtle: a Ken-Burns style
+    # zoom can add energy to otherwise static shots without needing tracking.
+    motion = motion or "none"
+    if motion in {"zoom_in", "zoom_out"} and output_aspect == "9:16":
+        z = "min(zoom+0.0008,1.08)" if motion == "zoom_in" else "if(eq(on,1),1.08,max(1.0,zoom-0.0008))"
+        vf_parts.append(f"zoompan=z='{z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps={rate or 24}")
+    speed=max(0.25,min(4.0,float(speed or 1.0)))
+    if abs(speed-1.0)>0.001:
+        vf_parts.append(f"setpts=PTS/{speed:.6f}")
     vf = ",".join(vf_parts)
 
     # 30ms audio fades at both edges (Rule 3) — prevent pops
-    fade_out_start = max(0.0, duration - 0.03)
-    af = f"afade=t=in:st=0:d=0.03,afade=t=out:st={fade_out_start:.3f}:d=0.03"
+    rendered_duration=duration/speed
+    fade_out_start = max(0.0, rendered_duration - 0.03)
+    af_parts=[]
+    if abs(speed-1.0)>0.001:
+        # atempo supports 0.5..2 per stage; decompose wider V6 values safely.
+        rem=speed
+        while rem>2.0: af_parts.append("atempo=2.0"); rem/=2.0
+        while rem<0.5: af_parts.append("atempo=0.5"); rem/=0.5
+        af_parts.append(f"atempo={rem:.6f}")
+    af_parts += ["afade=t=in:st=0:d=0.03", f"afade=t=out:st={fade_out_start:.3f}:d=0.03"]
+    af=",".join(af_parts)
 
     if draft:
         preset, crf = "ultrafast", "28"
@@ -373,7 +597,8 @@ def extract_all_segments(
         print(f"  [{i:02d}] {src_name}  {start:7.2f}-{end:7.2f}  ({duration:5.2f}s)  {note}")
         if is_auto:
             print(f"        grade: {seg_filter or '(none)'}")
-        extract_segment(src_path, start, duration, seg_filter, out_path, preview=preview, draft=draft, rate=out_rate)
+        output_aspect = (edl.get("output") or {}).get("aspect", "source")
+        extract_segment(src_path, start, duration, seg_filter, out_path, preview=preview, draft=draft, rate=out_rate, output_aspect=output_aspect, speed=_range_speed(r), motion=r.get("motion"), focus_x=r.get("focus_x",.5), focus_y=r.get("focus_y",.5))
         seg_paths.append(out_path)
 
     return seg_paths
@@ -676,7 +901,7 @@ def build_final_composite(
     if has_subs:
         subs_abs = str(subtitles_path.resolve()).replace(":", r"\:").replace("'", r"\'")
         filter_parts.append(
-            f"{current}subtitles='{subs_abs}':force_style='{SUB_FORCE_STYLE}'[outv]"
+            (f"{current}subtitles='{subs_abs}'[outv]" if subtitles_path.suffix.lower() == '.ass' else f"{current}subtitles='{subs_abs}':force_style='{SUB_FORCE_STYLE}'[outv]")
         )
         out_label = "[outv]"
     else:
@@ -726,7 +951,11 @@ def main() -> None:
     ap.add_argument(
         "--build-subtitles",
         action="store_true",
-        help="Build master.srt from transcripts + EDL offsets before compositing",
+        help="Build captions from transcripts + EDL offsets before compositing",
+    )
+    ap.add_argument(
+        "--caption-style", choices=["classic", "auto_dynamic", "visual_dynamic", *CAPTION_PRESETS.keys()], default=None,
+        help="Caption look. visual_dynamic adds V4 scene-aware position/motion on top of semantic styles.",
     )
     ap.add_argument(
         "--no-subtitles",
@@ -775,8 +1004,16 @@ def main() -> None:
     subs_path: Path | None = None
     if not args.no_subtitles:
         if args.build_subtitles:
-            subs_path = edit_dir / "master.srt"
-            build_master_srt(edl, edit_dir, subs_path)
+            caption_style = args.caption_style or edl.get("caption_style") or "visual_dynamic"
+            if caption_style == "classic":
+                subs_path = edit_dir / "master.srt"
+                build_master_srt(edl, edit_dir, subs_path)
+            else:
+                subs_path = edit_dir / "master.ass"
+                if caption_style == "visual_dynamic":
+                    build_master_ass_v4(edl, edit_dir, subs_path, caption_style)
+                else:
+                    build_master_ass(edl, edit_dir, subs_path, caption_style)
         elif edl.get("subtitles"):
             subs_path = resolve_subtitles_path(edl["subtitles"], edit_dir)
 

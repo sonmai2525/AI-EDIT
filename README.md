@@ -110,3 +110,39 @@ The self-eval loop runs `timeline_view` on the _rendered output_ at every cut bo
 5. **12 hard rules, artistic freedom elsewhere.** Production-correctness is non-negotiable. Taste isn't.
 
 See [`SKILL.md`](./SKILL.md) for the full production rules and editing craft.
+
+## V2: short-form / low-dialogue video analysis
+
+V2 adds a local-first path for TikTok/Reels/Shorts footage where transcript-first editing is not enough.
+
+```bash
+python helpers/analyze_short.py input.mp4 -o edit/analysis.json
+python helpers/make_short_edl.py edit/analysis.json -o edit/edl.short.json --target 20 --aspect 9:16
+python helpers/render.py edit/edl.short.json -o edit/final.mp4
+```
+
+`analyze_short.py` detects scene changes, audio beats, tempo and source metadata without a cloud API. The generated scene/beat JSON is intended to be combined with `timeline_view.py` for visual reasoning. `make_short_edl.py` creates a conservative starter montage, and `render.py` now accepts `output.aspect` (`9:16`, `16:9`, `1:1`, or `source`) for deterministic center-cropping.
+
+This intentionally does **not** blindly erase detected text/logos: static text can be legitimate content. An agent should visually inspect candidate regions first, then apply a reviewed crop/mask/clean-up step.
+
+### Dynamic short-form captions
+Use `--build-subtitles --caption-style auto_dynamic` for Text Engine V3. It switches visual treatment cue-by-cue between `hook`, `emphasis`, `number`, `cta`, `emotion`, and normal `viral_pop`, using transcript timing plus optional AI-authored `caption_events`. Fixed styles remain available: `viral_pop`, `punch`, `clean`, `cinematic`, and legacy `classic`. See `TEXT_ENGINE_V3.md`.
+
+## V5 AI Director
+V5 can automatically inspect each detected scene and populate V4 `visual_text_events` before rendering. See `AI_DIRECTOR_V5.md` and `helpers/ai_director.py`.
+
+## V6 Creative Director
+V6 adds edit-level creative direction: highlight ranking, hook/payoff roles, beat-aware trims, speed changes, subtle zoom motion, transition/SFX intent, and grade/music strategy. `render.py` now understands per-range `speed` and `motion`, including caption retiming. See `CREATIVE_DIRECTOR_V6.md`.
+
+## V7 — one-command Auto Viral Editor
+
+Run the complete local short-form pipeline plus QC and one conservative auto-repair pass:
+
+```bash
+python helpers/auto_viral_editor.py input.mp4 -o final.mp4 --target 20 --aspect 9:16
+```
+
+See `AUTO_VIRAL_EDITOR_V7.md` for details. “Viral” here describes the editing style/goal; no local heuristic can guarantee distribution or engagement.
+
+## V10 Multimodal Story Director
+V10 adds contact-sheet vision packets, optional provider-neutral VLM scene semantics, cold-open hook selection, payoff selection, narrative reordering, and preservation of V9 smart reframing. See `V10_MULTIMODAL_STORY_DIRECTOR.md`.
