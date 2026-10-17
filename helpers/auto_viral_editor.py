@@ -1,44 +1,62 @@
-"""V9 Auto Viral Editor: one-command V2→V6 orchestration + QC/re-render.
+"""V10.1 Auto Viral Editor — fast-quality by default, full-ai on demand.
 
-This automates technical/creative heuristics; it does not guarantee virality.
-Usage: python helpers/auto_viral_editor.py input.mp4 -o final.mp4 --target 20 --aspect 9:16
+Fast-quality preserves a good source edit and spends compute where viewers notice it:
+scene/beat analysis, concise EDL, visual text, light creative motion, render and one QC.
+Full-ai keeps the V5→V10 semantic/story pipeline.
 """
 from __future__ import annotations
-import argparse,json,shutil,subprocess,sys
+import argparse,json,shutil,subprocess,sys,time
 from pathlib import Path
 from viral_qc import evaluate,repair
+from watermark_cleanup import clean as clean_watermark, parse_box
 
 def run(cmd):
     print('>',' '.join(map(str,cmd))); subprocess.run(list(map(str,cmd)),check=True)
 
 def main():
-    ap=argparse.ArgumentParser(description='One-command short-form auto editor')
-    ap.add_argument('video',type=Path); ap.add_argument('-o','--output',type=Path,required=True); ap.add_argument('--target',type=float,default=20); ap.add_argument('--aspect',choices=['9:16','16:9','1:1','source'],default='9:16')
+    ap=argparse.ArgumentParser(description='V10.1 one-command short-form editor')
+    ap.add_argument('video',type=Path); ap.add_argument('-o','--output',type=Path,required=True)
+    ap.add_argument('--target',type=float,default=20); ap.add_argument('--aspect',choices=['9:16','16:9','1:1','source'],default='9:16')
+    ap.add_argument('--mode',choices=['fast-quality','full-ai'],default='fast-quality')
     ap.add_argument('--workdir',type=Path); ap.add_argument('--caption-style',default='visual_dynamic'); ap.add_argument('--preview',action='store_true'); ap.add_argument('--no-subtitles',action='store_true'); ap.add_argument('--no-auto-repair',action='store_true')
-    a=ap.parse_args(); video=a.video.resolve(); output=a.output.resolve(); root=Path(__file__).resolve().parent; work=(a.workdir or output.parent/(output.stem+'_v7')).resolve(); work.mkdir(parents=True,exist_ok=True)
-    analysis=work/'analysis.json'; edl=work/'edl.json'; visual=work/'director.v5.json'; creative=work/'creative.v6.json'; semantic=work/'semantic.v8.json'; story=work/'story.v9.json'; story10=work/'story.v10.json'; first=work/'first_pass.mp4'; qc1=work/'qc.first.json'
+    ap.add_argument('--watermark-box',help='optional x,y,w,h pixels; edge marks are cropped cleanly, never blurred'); ap.add_argument('--max-watermark-crop',type=float,default=.12)
+    a=ap.parse_args(); started=time.time(); original=a.video.resolve(); output=a.output.resolve(); root=Path(__file__).resolve().parent; work=(a.workdir or output.parent/(output.stem+'_v101')).resolve(); work.mkdir(parents=True,exist_ok=True)
+    video=original; wm_report=None
+    if a.watermark_box:
+        cleaned=work/'source.clean.mp4'; wm_report=clean_watermark(original,cleaned,parse_box(a.watermark_box),'auto',a.max_watermark_crop); (work/'watermark.json').write_text(json.dumps(wm_report,ensure_ascii=False,indent=2)); video=cleaned if wm_report.get('applied') else original
+        print('watermark:',wm_report.get('method'),wm_report.get('reason',''))
+    analysis=work/'analysis.json'; edl=work/'edl.json'; first=work/'first_pass.mp4'; qc1=work/'qc.first.json'
     run([sys.executable,root/'analyze_short.py',video,'-o',analysis])
     run([sys.executable,root/'make_short_edl.py',analysis,'-o',edl,'--target',a.target,'--aspect',a.aspect])
-    run([sys.executable,root/'ai_director.py',video,analysis,'-o',visual,'--edl',edl,'--apply'])
-    run([sys.executable,root/'creative_director.py',analysis,'-o',creative,'--director',visual,'--edl',edl,'--apply','--target',a.target])
-    run([sys.executable,root/'semantic_vision_director.py',video,analysis,'-o',semantic,'--edl',edl,'--apply'])
-    run([sys.executable,root/'story_reframe_v9.py',video,analysis,'-o',story,'--semantic',semantic,'--edl',edl,'--apply'])
-    run([sys.executable,root/'multimodal_story_v10.py',video,analysis,story,'-o',story10,'--semantic',semantic,'--assets-dir',work/'v10_storyboards','--edl',edl,'--apply','--target',a.target])
+    if a.mode=='fast-quality':
+        # One visual pass + one light creative pass. Skip V8/V9/V10 storyboard generation.
+        visual=work/'director.v5.json'; creative=work/'creative.v6.json'
+        run([sys.executable,root/'ai_director.py',video,analysis,'-o',visual,'--edl',edl,'--apply'])
+        run([sys.executable,root/'creative_director.py',analysis,'-o',creative,'--director',visual,'--edl',edl,'--apply','--target',a.target])
+    else:
+        visual=work/'director.v5.json'; creative=work/'creative.v6.json'; semantic=work/'semantic.v8.json'; story=work/'story.v9.json'; story10=work/'story.v10.json'
+        run([sys.executable,root/'ai_director.py',video,analysis,'-o',visual,'--edl',edl,'--apply'])
+        run([sys.executable,root/'creative_director.py',analysis,'-o',creative,'--director',visual,'--edl',edl,'--apply','--target',a.target])
+        run([sys.executable,root/'semantic_vision_director.py',video,analysis,'-o',semantic,'--edl',edl,'--apply'])
+        run([sys.executable,root/'story_reframe_v9.py',video,analysis,'-o',story,'--semantic',semantic,'--edl',edl,'--apply'])
+        run([sys.executable,root/'multimodal_story_v10.py',video,analysis,story,'-o',story10,'--semantic',semantic,'--assets-dir',work/'v10_storyboards','--edl',edl,'--apply','--target',a.target])
     cmd=[sys.executable,root/'render.py',edl,'-o',first]
     if a.preview: cmd.append('--preview')
     if a.no_subtitles: cmd.append('--no-subtitles')
     else: cmd += ['--build-subtitles','--caption-style',a.caption_style]
     run(cmd)
-    ed=json.loads(edl.read_text()); rep=evaluate(first,ed); qc1.write_text(json.dumps(rep,ensure_ascii=False,indent=2)); print(f'V7 QC first pass: {rep["score"]}/100')
+    ed=json.loads(edl.read_text()); rep=evaluate(first,ed); qc1.write_text(json.dumps(rep,ensure_ascii=False,indent=2)); print(f'QC first pass: {rep["score"]}/100')
     final_src=first
-    if not rep['pass'] and not a.no_auto_repair:
-        repaired=work/'edl.repaired.json'; repaired.write_text(json.dumps(repair(ed,rep),ensure_ascii=False,indent=2))
-        second=work/'second_pass.mp4'; cmd=[sys.executable,root/'render.py',repaired,'-o',second]
+    # Fast mode only pays for a second render when QC is genuinely poor (<76/error).
+    repair_threshold=76 if a.mode=='fast-quality' else 82
+    needs_repair=(rep['score']<repair_threshold or any(x.get('severity')=='error' for x in rep.get('issues',[])))
+    if needs_repair and not a.no_auto_repair:
+        repaired=work/'edl.repaired.json'; repaired.write_text(json.dumps(repair(ed,rep),ensure_ascii=False,indent=2)); second=work/'second_pass.mp4'; cmd=[sys.executable,root/'render.py',repaired,'-o',second]
         if a.preview: cmd.append('--preview')
         if a.no_subtitles: cmd.append('--no-subtitles')
         else: cmd += ['--build-subtitles','--caption-style',a.caption_style]
-        run(cmd); rep2=evaluate(second,json.loads(repaired.read_text())); (work/'qc.second.json').write_text(json.dumps(rep2,ensure_ascii=False,indent=2)); print(f'V7 QC repaired pass: {rep2["score"]}/100'); final_src=second if rep2['score']>=rep['score'] else first
+        run(cmd); rep2=evaluate(second,json.loads(repaired.read_text())); (work/'qc.second.json').write_text(json.dumps(rep2,ensure_ascii=False,indent=2)); final_src=second if rep2['score']>=rep['score'] else first
     output.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(final_src,output)
-    manifest={'version':10,'input':str(video),'output':str(output),'workdir':str(work),'target_seconds':a.target,'aspect':a.aspect,'auto_repair':not a.no_auto_repair,'selected_pass':final_src.name}
-    (work/'v7.manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)); print(f'\ndone V10 → {output}')
+    manifest={'version':'10.1','mode':a.mode,'input':str(original),'effective_source':str(video),'output':str(output),'workdir':str(work),'target_seconds':a.target,'aspect':a.aspect,'selected_pass':final_src.name,'elapsed_seconds':round(time.time()-started,2),'watermark':wm_report}
+    (work/'v10.1.manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)); print(f'\ndone V10.1 {a.mode} → {output} | {manifest["elapsed_seconds"]}s')
 if __name__=='__main__': main()
