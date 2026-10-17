@@ -1,4 +1,4 @@
-"""V12 Auto Viral Editor — retention-first, fast/smart/max.
+"""V13 Auto Viral Editor — retention-first, fast/smart/max.
 
 Fast-quality preserves a good source edit and spends compute where viewers notice it:
 scene/beat analysis, concise EDL, visual text, light creative motion, render and one QC.
@@ -48,6 +48,8 @@ def main():
     # V12: score multiple edit candidates from one analysis and render only the winner.
     viral12=work/'viral.v12.json'
     run([sys.executable,root/'viral_engine_v12.py',analysis,edl,'-o',viral12,'--target',a.target,'--apply'])
+    story13=work/'story.v13.json'
+    run([sys.executable,root/'story_intelligence_v13.py',video,analysis,edl,'-o',story13,'--target',a.target,'--apply'])
     cmd=[sys.executable,root/'render.py',edl,'-o',first]
     if a.preview: cmd.append('--preview')
     if a.no_subtitles: cmd.append('--no-subtitles')
@@ -65,6 +67,6 @@ def main():
         else: cmd += ['--build-subtitles','--caption-style',a.caption_style]
         run(cmd); rep2=evaluate(second,json.loads(repaired.read_text())); (work/'qc.second.json').write_text(json.dumps(rep2,ensure_ascii=False,indent=2)); final_src=second if rep2['score']>=rep['score'] else first
     output.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(final_src,output)
-    manifest={'version':'12.0','mode':a.mode,'input':str(original),'effective_source':str(video),'output':str(output),'workdir':str(work),'target_seconds':a.target,'aspect':a.aspect,'selected_pass':final_src.name,'elapsed_seconds':round(time.time()-started,2),'watermark':wm_report,'viral_plan':str(viral12)}
-    (work/'v12.manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)); print(f'\ndone V12 {a.mode} → {output} | {manifest["elapsed_seconds"]}s')
+    manifest={'version':'13.0','mode':a.mode,'input':str(original),'effective_source':str(video),'output':str(output),'workdir':str(work),'target_seconds':a.target,'aspect':a.aspect,'selected_pass':final_src.name,'elapsed_seconds':round(time.time()-started,2),'watermark':wm_report,'viral_plan':str(viral12),'story_plan_v13':str(story13)}
+    (work/'v13.manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)); print(f'\ndone V13 {a.mode} → {output} | {manifest["elapsed_seconds"]}s')
 if __name__=='__main__': main()
