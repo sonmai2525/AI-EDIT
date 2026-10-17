@@ -7,7 +7,7 @@ ROOT=Path(__file__).resolve().parent.parent
 def load_cfg(path):
     c=configparser.ConfigParser(); c.read(path,encoding='utf-8'); s=c['EDIT'] if 'EDIT' in c else {}
     get=lambda k,d:s.get(k,d) if hasattr(s,'get') else d
-    return {'mode':get('mode','fast-quality').strip(),'aspect':get('aspect','9:16').strip(),'target':get('target_seconds','20').strip(),'caption':get('caption_style','visual_dynamic').strip(),'watermark':get('watermark_box','').strip(),'preview':get('preview','false').lower() in ('1','true','yes','on'),'auto_repair':get('auto_repair','true').lower() in ('1','true','yes','on')}
+    return {'mode':get('mode','smart').strip(),'aspect':get('aspect','9:16').strip(),'target':get('target_seconds','20').strip(),'caption':get('caption_style','visual_dynamic').strip(),'watermark':get('watermark_box','').strip(),'preview':get('preview','false').lower() in ('1','true','yes','on'),'auto_repair':get('auto_repair','true').lower() in ('1','true','yes','on')}
 
 def unique_output(outdir,src):
     p=outdir/f'{src.stem}_EDIT.mp4'; n=2
@@ -15,8 +15,8 @@ def unique_output(outdir,src):
     return p
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument('videos',nargs='*'); ap.add_argument('--mode',choices=['fast-quality','full-ai']); a=ap.parse_args()
-    cfg=load_cfg(ROOT/'V10.2_CONFIG.ini'); mode=a.mode or cfg['mode']; inputs=[Path(x).expanduser().resolve() for x in a.videos]
+    ap=argparse.ArgumentParser(); ap.add_argument('videos',nargs='*'); ap.add_argument('--mode',choices=['fast','smart','max']); a=ap.parse_args()
+    cfg=load_cfg(ROOT/'V12_CONFIG.ini'); mode=a.mode or cfg['mode']; inputs=[Path(x).expanduser().resolve() for x in a.videos]
     if not inputs:
         inputs=sorted(p.resolve() for p in (ROOT/'INPUT').iterdir() if p.is_file() and p.suffix.lower() in VIDEO_EXTS)
     inputs=[p for p in inputs if p.exists() and p.is_file() and p.suffix.lower() in VIDEO_EXTS]
