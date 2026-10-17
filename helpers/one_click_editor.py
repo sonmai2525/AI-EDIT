@@ -16,7 +16,7 @@ def unique_output(outdir,src):
 
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument('videos',nargs='*'); ap.add_argument('--mode',choices=['fast','smart','max']); a=ap.parse_args()
-    cfg=load_cfg(ROOT/'V13.1_CONFIG.ini'); mode=a.mode or cfg['mode']; inputs=[Path(x).expanduser().resolve() for x in a.videos]
+    cfg=load_cfg(ROOT/'V14_CONFIG.ini'); mode=a.mode or cfg['mode']; inputs=[Path(x).expanduser().resolve() for x in a.videos]
     if not inputs:
         inputs=sorted(p.resolve() for p in (ROOT/'INPUT').iterdir() if p.is_file() and p.suffix.lower() in VIDEO_EXTS)
     inputs=[p for p in inputs if p.exists() and p.is_file() and p.suffix.lower() in VIDEO_EXTS]

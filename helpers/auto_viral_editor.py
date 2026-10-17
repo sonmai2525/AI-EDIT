@@ -1,4 +1,4 @@
-"""V13.1 Auto Viral Editor — retention-first, fast/smart/max.
+"""V14 Auto Viral Editor — retention-first, fast/smart/max.
 
 Fast-quality preserves a good source edit and spends compute where viewers notice it:
 scene/beat analysis, concise EDL, visual text, light creative motion, render and one QC.
@@ -52,6 +52,10 @@ def main():
     run([sys.executable,root/'story_intelligence_v13.py',video,analysis,edl,'-o',story13,'--target',a.target,'--apply'])
     finish131=work/'finish.v13.1.json'
     run([sys.executable,root/'story_intelligence_v131.py',video,edl,'-o',finish131,'--target',a.target,'--apply'])
+    creative14=work/'creative.v14.json'
+    run([sys.executable,root/'creative_director_v14.py',edl,'-o',creative14,'--target',a.target,'--apply'])
+    voice14=work/'voice.v14.json'
+    run([sys.executable,root/'voice_director_v14.py',edl,'-o',voice14])
     cmd=[sys.executable,root/'render.py',edl,'-o',first]
     if a.preview: cmd.append('--preview')
     if a.no_subtitles: cmd.append('--no-subtitles')
@@ -69,6 +73,6 @@ def main():
         else: cmd += ['--build-subtitles','--caption-style',a.caption_style]
         run(cmd); rep2=evaluate(second,json.loads(repaired.read_text())); (work/'qc.second.json').write_text(json.dumps(rep2,ensure_ascii=False,indent=2)); final_src=second if rep2['score']>=rep['score'] else first
     output.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(final_src,output)
-    manifest={'version':'13.1','mode':a.mode,'input':str(original),'effective_source':str(video),'output':str(output),'workdir':str(work),'target_seconds':a.target,'aspect':a.aspect,'selected_pass':final_src.name,'elapsed_seconds':round(time.time()-started,2),'watermark':wm_report,'viral_plan':str(viral12),'story_plan_v13':str(story13),'finish_plan_v131':str(finish131)}
-    (work/'v13.manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)); print(f'\ndone V13.1 {a.mode} → {output} | {manifest["elapsed_seconds"]}s')
+    manifest={'version':'14.0','mode':a.mode,'input':str(original),'effective_source':str(video),'output':str(output),'workdir':str(work),'target_seconds':a.target,'aspect':a.aspect,'selected_pass':final_src.name,'elapsed_seconds':round(time.time()-started,2),'watermark':wm_report,'viral_plan':str(viral12),'story_plan_v13':str(story13),'finish_plan_v131':str(finish131),'creative_plan_v14':str(creative14),'voice_plan_v14':str(voice14)}
+    (work/'v13.manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)); print(f'\ndone V14 {a.mode} → {output} | {manifest["elapsed_seconds"]}s')
 if __name__=='__main__': main()

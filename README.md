@@ -1,3 +1,7 @@
+# VIDEO AI EDITOR V14
+
+V14 adds Creative Director, Dynamic Editing, AI Voice planning, Text+Voice coordination and Payoff Director 2.0.
+
 <p align="center">
   <img src="static/video-use-banner.png" alt="video-use" width="100%">
 </p>
