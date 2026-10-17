@@ -1,4 +1,4 @@
-"""V13 Auto Viral Editor — retention-first, fast/smart/max.
+"""V13.1 Auto Viral Editor — retention-first, fast/smart/max.
 
 Fast-quality preserves a good source edit and spends compute where viewers notice it:
 scene/beat analysis, concise EDL, visual text, light creative motion, render and one QC.
@@ -14,7 +14,7 @@ def run(cmd):
     print('>',' '.join(map(str,cmd))); subprocess.run(list(map(str,cmd)),check=True)
 
 def main():
-    ap=argparse.ArgumentParser(description='V10.1 one-command short-form editor')
+    ap=argparse.ArgumentParser(description='V13.1 one-command retention-first short-form editor')
     ap.add_argument('video',type=Path); ap.add_argument('-o','--output',type=Path,required=True)
     ap.add_argument('--target',type=float,default=20); ap.add_argument('--aspect',choices=['9:16','16:9','1:1','source'],default='9:16')
     ap.add_argument('--mode',choices=['fast','smart','max','fast-quality','full-ai'],default='smart')
@@ -23,7 +23,7 @@ def main():
     a=ap.parse_args(); started=time.time();
     if a.mode=='fast-quality': a.mode='fast'
     if a.mode=='full-ai': a.mode='max'
-    original=a.video.resolve(); output=a.output.resolve(); root=Path(__file__).resolve().parent; work=(a.workdir or output.parent/(output.stem+'_v12')).resolve(); work.mkdir(parents=True,exist_ok=True)
+    original=a.video.resolve(); output=a.output.resolve(); root=Path(__file__).resolve().parent; work=(a.workdir or output.parent/(output.stem+'_v131')).resolve(); work.mkdir(parents=True,exist_ok=True)
     video=original; wm_report=None
     if a.watermark_box:
         cleaned=work/'source.clean.mp4'; wm_report=clean_watermark(original,cleaned,parse_box(a.watermark_box),'auto',a.max_watermark_crop); (work/'watermark.json').write_text(json.dumps(wm_report,ensure_ascii=False,indent=2)); video=cleaned if wm_report.get('applied') else original
@@ -50,6 +50,8 @@ def main():
     run([sys.executable,root/'viral_engine_v12.py',analysis,edl,'-o',viral12,'--target',a.target,'--apply'])
     story13=work/'story.v13.json'
     run([sys.executable,root/'story_intelligence_v13.py',video,analysis,edl,'-o',story13,'--target',a.target,'--apply'])
+    finish131=work/'finish.v13.1.json'
+    run([sys.executable,root/'story_intelligence_v131.py',video,edl,'-o',finish131,'--target',a.target,'--apply'])
     cmd=[sys.executable,root/'render.py',edl,'-o',first]
     if a.preview: cmd.append('--preview')
     if a.no_subtitles: cmd.append('--no-subtitles')
@@ -67,6 +69,6 @@ def main():
         else: cmd += ['--build-subtitles','--caption-style',a.caption_style]
         run(cmd); rep2=evaluate(second,json.loads(repaired.read_text())); (work/'qc.second.json').write_text(json.dumps(rep2,ensure_ascii=False,indent=2)); final_src=second if rep2['score']>=rep['score'] else first
     output.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(final_src,output)
-    manifest={'version':'13.0','mode':a.mode,'input':str(original),'effective_source':str(video),'output':str(output),'workdir':str(work),'target_seconds':a.target,'aspect':a.aspect,'selected_pass':final_src.name,'elapsed_seconds':round(time.time()-started,2),'watermark':wm_report,'viral_plan':str(viral12),'story_plan_v13':str(story13)}
-    (work/'v13.manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)); print(f'\ndone V13 {a.mode} → {output} | {manifest["elapsed_seconds"]}s')
+    manifest={'version':'13.1','mode':a.mode,'input':str(original),'effective_source':str(video),'output':str(output),'workdir':str(work),'target_seconds':a.target,'aspect':a.aspect,'selected_pass':final_src.name,'elapsed_seconds':round(time.time()-started,2),'watermark':wm_report,'viral_plan':str(viral12),'story_plan_v13':str(story13),'finish_plan_v131':str(finish131)}
+    (work/'v13.manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)); print(f'\ndone V13.1 {a.mode} → {output} | {manifest["elapsed_seconds"]}s')
 if __name__=='__main__': main()
